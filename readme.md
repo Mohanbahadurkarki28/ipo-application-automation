@@ -26,13 +26,14 @@
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/Mohanbahadurkarki28/ipo-application-automation
+git clone https://github.com/Mohanbahadurkarki28/ipo-application-automation.git
 cd ipo_automation
 
 ---
 
-## To Run in Terminal
+## To Run
 
-### To Run
-```bash
+```bash 
 python manage.py applyingipo
+
+---
