@@ -29,6 +29,8 @@
 git clone https://github.com/Mohanbahadurkarki28/ipo-application-automation
 cd ipo_automation
 
-### To Run
+---
+
+## To Run
 ```bash
 python manage.py applyingipo
