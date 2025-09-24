@@ -31,6 +31,8 @@ cd ipo_automation
 
 ---
 
-## To Run
+## To Run in Terminal
+
+### To Run
 ```bash
 python manage.py applyingipo
