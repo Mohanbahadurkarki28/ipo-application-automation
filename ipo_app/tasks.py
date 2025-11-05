@@ -1,9 +1,9 @@
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
 from decouple import config
 
 
@@ -37,136 +37,77 @@ def load_accounts():
     return accounts
 
 
-def select_dp(driver, dp_id):
-    """Select DP from Select2 dropdown"""
-    try:
-        dropdown = WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.ID, "selectBranch"))
-        )
-        dropdown.click()
-        time.sleep(0.5)
-
-        # Search DP ID
-        search_box = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
-        )
-        search_box.clear()
-        search_box.send_keys(dp_id)
-        time.sleep(0.5)
-
-        # Press Enter to select DP
-        search_box.send_keys(Keys.ENTER)
-        time.sleep(1)
-
-        print(f"✅ DP selected: {dp_id}")
-
-    except Exception as e:
-        raise Exception(f"Failed to select DP: {e}")
+def setup_driver():
+    """Setup Chrome driver with optimized options"""
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-logging")
+    # chrome_options.add_argument("--headless=new")  # run headless for speed
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.implicitly_wait(8)
+    return driver
 
 
-def enter_username(driver: webdriver.Chrome, username: str, timeout: int = 15):
-    """
-    Enters a username character by character into a field with Angular compatibility.
-
-    Args:
-        driver (webdriver.Chrome): The Selenium WebDriver instance.
-        username (str): The username string to be entered.
-        timeout (int): The maximum time to wait for the element in seconds.
-
-    Raises:
-        TimeoutException: If the username field is not found within the timeout.
-        Exception: If the final value in the field does not match the input.
-    """
-    if not isinstance(username, str):
-        print("⚠️ Warning: The provided username is not a string. Attempting to convert.")
-        username = str(username)
-
-    try:
-        # Wait for the username field to be present and clickable
-        username_field = WebDriverWait(driver, timeout).until(
-            EC.element_to_be_clickable((By.ID, "username"))
-        )
-
-        # Clear the field using a robust method
-        username_field.clear()
-        time.sleep(0.3)  # Small delay for Angular to register the clear event
-
-        print(f"Typing username: {username}")
-        # Type each character with a small delay
-        for char in username:
-            username_field.send_keys(char)
-            time.sleep(0.2)
-
-        # Trigger Angular events
-        driver.execute_script("""arguments[0].dispatchEvent(new Event('input', { bubbles: true })); arguments[0].dispatchEvent(new Event('change', { bubbles: true }));""", username_field)
-
-        # Verify the entered value
-        final_value = username_field.get_attribute('value')
-        if final_value != username:
-            raise ValueError(f"❌ Username mismatch: expected '{username}', but got '{final_value}'")
-
-        print(f"✅ Username entered successfully: {final_value}")
-
-    except Exception as e:
-        print(f"An error occurred while entering the username: {e}")
-        raise
+def fast_send_keys(element, text):
+    """Send keys quickly"""
+    element.clear()
+    element.send_keys(text)
 
 
-def enter_password(driver, password):
-    """Fill password"""
-    password_field = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "password"))
-    )
-
-    password_field.click()
-    password_field.clear()
-    password_field.send_keys(password)
-    print("🔑 Password entered successfully")
+def wait_and_click(driver, selectors, timeout=8):
+    """Try multiple selectors until one works"""
+    wait = WebDriverWait(driver, timeout)
+    for selector_type, selector_value in selectors:
+        try:
+            if selector_type == "xpath":
+                element = wait.until(EC.element_to_be_clickable((By.XPATH, selector_value)))
+            elif selector_type == "css":
+                element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector_value)))
+            elif selector_type == "id":
+                element = wait.until(EC.element_to_be_clickable((By.ID, selector_value)))
+            element.click()
+            return True
+        except:
+            continue
+    return False
 
 
 def login(driver, acc):
-    """Login to MeroShare and navigate directly to My ASBA page"""
+    """Login into MeroShare"""
     driver.get("https://meroshare.cdsc.com.np/#/login")
 
-    # Wait for login form
-    WebDriverWait(driver, 15).until(
+    # Select DP
+    dp_field = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.ID, "selectBranch"))
+    )
+    dp_field.click()
+    search_box = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
+    )
+    search_box.send_keys(acc["dp_id"])
+    search_box.send_keys("\n")
+
+    # Username
+    username_field = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "username"))
     )
+    fast_send_keys(username_field, acc["username"])
 
-    # STEP 1: Select DP
-    select_dp(driver, acc["dp_id"])
+    # Password
+    password_field = driver.find_element(By.ID, "password")
+    fast_send_keys(password_field, acc["password"])
 
-    # STEP 2: Enter username properly
-    enter_username(driver, acc["username"])
-
-    # STEP 3: Enter password
-    enter_password(driver, acc["password"])
-
-    # STEP 4: Click Login button
-    login_button = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Login')]"))
-    )
-    login_button.click()
-    print(f"🔐 Attempting login for {acc['name']}...")
-
-    # ✅ Wait for dashboard or ASBA page after login
-    try:
-        WebDriverWait(driver, 25).until(
-            EC.any_of(
-                EC.presence_of_element_located((By.CLASS_NAME, "sidebar")),
-                EC.url_contains("dashboard")
-            )
-        )
-        print("✅ Login successful!")
-
-        # 🔄 Navigate directly to ASBA page after login
-        navigate_to_asba(driver)
-
-    except Exception as e:
-        print(f"⚠️ Warning: Could not verify dashboard load: {e}")
-        print(f"Current URL: {driver.current_url}")
-        print("🔄 Trying to navigate to ASBA page anyway...")
-        navigate_to_asba(driver)
+    # Click login
+    login_selectors = [
+        ("xpath", "//button[contains(text(),'Login')]"),
+        ("css", "button[type='submit']"),
+    ]
+    wait_and_click(driver, login_selectors)
+    WebDriverWait(driver, 15).until(EC.url_contains("dashboard"))
+    print(f"✅ Logged in: {acc['name']}")
 
 
 def navigate_to_asba(driver):
@@ -233,11 +174,31 @@ def select_ipo_and_apply(driver):
         apply_button = None
         ipo_number = None
         
+        ipo_found_but_no_apply = False
+        
         # Try to find IPO with enhanced selectors including btn-issue class
         for search_term in ipo_parts:
             if apply_button:
                 break
                 
+            ipo_exists_selectors = [
+                f"//span[contains(@class,'company-name') and contains(text(),'{search_term}')]",
+                f"//div[contains(text(),'{search_term}')]",
+                f"//td[contains(text(),'{search_term}')]",
+                f"//tr[contains(.,'{search_term}')]",
+                f"//div[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{search_term.lower()}')]"
+            ]
+            
+            for selector in ipo_exists_selectors:
+                try:
+                    ipo_element = driver.find_element(By.XPATH, selector)
+                    if ipo_element:
+                        ipo_found_but_no_apply = True
+                        print(f"✅ Found IPO '{search_term}' in the list")
+                        break
+                except:
+                    continue
+            
             ipo_selectors = [
                 # Look for Apply button or btn-issue class near the IPO name
                 f"//span[contains(@class,'company-name') and contains(text(),'{search_term}')]/ancestor::div[contains(@class,'row')]//button[contains(@class,'btn-issue') or contains(text(),'Apply')]",
@@ -301,6 +262,10 @@ def select_ipo_and_apply(driver):
                 break
         
         if not apply_button:
+            if ipo_found_but_no_apply:
+                print("⚠️ IPO already applied")
+                return "ALREADY_APPLIED"
+            
             try:
                 print("❌ IPO not found. Available IPOs:")
                 ipo_elements = driver.find_elements(By.XPATH, "//button[contains(@class,'btn-issue') or contains(text(),'Apply')]/ancestor::div[contains(@class,'row') or contains(@class,'company')]")
@@ -325,6 +290,8 @@ def select_ipo_and_apply(driver):
             apply_button.click()
             time.sleep(2)
             print(f"✅ Clicked Apply button for IPO: {ipo_name}")
+        
+        return "SUCCESS"
         
     except Exception as e:
         raise Exception(f"Failed to find and apply for IPO '{ipo_name}': {e}")
@@ -828,14 +795,18 @@ def enter_pin_and_submit(driver, acc):
         raise Exception(f"Failed to complete PIN submission: {e}")
 
 
+
 def apply_ipo_for_account(driver, acc):
     """Complete IPO application process for one account"""
     try:
         # Navigate to My ASBA
         navigate_to_asba(driver)
         
-        # Find specific IPO and Apply
-        select_ipo_and_apply(driver)
+        ipo_status = select_ipo_and_apply(driver)
+        
+        if ipo_status == "ALREADY_APPLIED":
+            print(f"⚠️ IPO already applied for {acc['name']}")
+            return "ALREADY_APPLIED"
         
         # Fill the IPO form
         fill_ipo_form(driver, acc)
@@ -844,14 +815,136 @@ def apply_ipo_for_account(driver, acc):
         enter_pin_and_submit(driver, acc)
         
         print(f"🎉 IPO application completed for {acc['name']}")
+        return "SUCCESS"
         
     except Exception as e:
         print(f"❌ IPO application failed for {acc['name']}: {e}")
         raise
 
 
+def logout(driver):
+    """Logout from MeroShare"""
+    try:
+        print("🔄 Logging out...")
+        
+        # Wait for page to be ready
+        time.sleep(2)
+        
+        logout_button = None
+        logout_selectors = [
+            # Based on the image - logout link with specific classes
+            "//a[contains(@class,'nav-link') and contains(@class,'header-menu__link') and @tooltip='Logout']",
+            "//a[@tooltip='Logout']",
+            "//a[contains(@class,'nav-link') and contains(.,'Logout')]",
+            # Icon-based selectors
+            "//i[contains(@class,'msi-logout')]/parent::a",
+            "//span[contains(@class,'msi-logout')]/parent::a",
+            "//*[contains(@class,'msi-logout')]/ancestor::a[1]",
+            # Text-based selectors
+            "//a[contains(text(),'Logout')]",
+            "//a[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'logout')]",
+            # Menu-based selectors
+            "//ul[contains(@class,'header-menu')]//a[contains(@class,'nav-link')][@tooltip='Logout']",
+            "//div[contains(@class,'header-menu')]//a[@tooltip='Logout']",
+            # Broader selectors
+            "//*[@tooltip='Logout']",
+            "//a[contains(@href,'logout') or contains(@onclick,'logout')]"
+        ]
+        
+        for i, selector in enumerate(logout_selectors):
+            try:
+                print(f"🔍 Trying logout selector {i+1}: {selector}")
+                logout_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, selector))
+                )
+                print(f"✅ Found logout button using selector {i+1}")
+                break
+            except:
+                continue
+        
+        if not logout_button:
+            # Debug available logout-related elements
+            print("🔍 Logout button not found. Debugging available elements...")
+            try:
+                # Look for any elements containing logout text or classes
+                logout_elements = driver.find_elements(By.XPATH, "//*[contains(text(),'Logout') or contains(@class,'logout') or contains(@tooltip,'Logout') or contains(@class,'msi-logout')]")
+                print(f"📋 Found {len(logout_elements)} logout-related elements:")
+                
+                for i, elem in enumerate(logout_elements[:5]):  # Show first 5
+                    try:
+                        tag = elem.tag_name
+                        text = elem.text.strip()
+                        classes = elem.get_attribute('class') or ''
+                        tooltip = elem.get_attribute('tooltip') or ''
+                        href = elem.get_attribute('href') or ''
+                        
+                        print(f"  Element {i+1}: <{tag}> text='{text}', class='{classes}', tooltip='{tooltip}', href='{href}'")
+                        
+                        # Try to use this element if it looks clickable
+                        if elem.is_displayed() and elem.is_enabled() and (elem.tag_name == 'a' or elem.tag_name == 'button'):
+                            logout_button = elem
+                            print(f"🎯 Using element {i+1} as logout button")
+                            break
+                            
+                    except Exception as e:
+                        print(f"  Element {i+1}: Error - {e}")
+                        
+            except Exception as debug_error:
+                print(f"❌ Error during logout debugging: {debug_error}")
+        
+        if not logout_button:
+            raise Exception("Logout button not found with any selector method")
+        
+        # Click logout button
+        try:
+            # Scroll to button first
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", logout_button)
+            time.sleep(1)
+            
+            # Try regular click
+            logout_button.click()
+            print("✅ Successfully clicked logout button")
+            
+        except Exception as click_error:
+            print(f"⚠️ Regular click failed: {click_error}")
+            try:
+                # Try JavaScript click as fallback
+                driver.execute_script("arguments[0].click();", logout_button)
+                print("✅ Successfully clicked logout button using JavaScript")
+            except Exception as js_error:
+                raise Exception(f"Both regular and JavaScript clicks failed: {click_error}, {js_error}")
+        
+        # Wait for logout to complete - should redirect to login page
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.any_of(
+                    EC.url_contains("login"),
+                    EC.presence_of_element_located((By.ID, "username")),
+                    EC.presence_of_element_located((By.XPATH, "//button[contains(text(),'Login')]"))
+                )
+            )
+            print("✅ Successfully logged out - redirected to login page")
+            
+        except Exception as e:
+            print(f"⚠️ Could not verify logout completion: {e}")
+            print(f"Current URL: {driver.current_url}")
+            # Continue anyway as logout might have worked
+        
+        time.sleep(2)  # Additional wait for page to stabilize
+        
+    except Exception as e:
+        print(f"❌ Error during logout: {e}")
+        try:
+            print(f"Current URL: {driver.current_url}")
+            driver.save_screenshot("logout_error.png")
+            print("📸 Logout error screenshot saved as logout_error.png")
+        except:
+            pass
+        raise Exception(f"Failed to logout: {e}")
+
+
 def apply_ipo_for_all():
-    """Main function"""
+    """Main function - Added logout functionality between accounts"""
     accounts = load_accounts()
 
     if not accounts:
@@ -863,16 +956,49 @@ def apply_ipo_for_all():
     driver = webdriver.Chrome(options=options)
 
     print(f"🎉 Chrome opened. {len(accounts)} accounts to process.")
+    
+    try:
+        print("🔄 Initializing browser and clearing any existing sessions...")
+        driver.get("https://meroshare.cdsc.com.np")
+        time.sleep(2)
+        
+        # Clear any existing sessions/cookies
+        driver.delete_all_cookies()
+        print("✅ Browser initialized and cookies cleared")
+        time.sleep(1)
+    except Exception as e:
+        print(f"⚠️ Warning during browser initialization: {e}")
 
     for i, acc in enumerate(accounts, 1):
         print(f"\n=== Processing {acc['name']} ({i}/{len(accounts)}) ===")
         try:
+            if i == 1:
+                print("🚀 Preparing for first account login...")
+                driver.get("https://meroshare.cdsc.com.np")
+                time.sleep(2)
+            
             print(f"🔑 Starting login process for {acc['name']}...")
             login(driver, acc)
             print(f"✅ Login process completed for {acc['name']}")
             
             print("🚀 Starting IPO application process...")
-            apply_ipo_for_account(driver, acc)
+            result = apply_ipo_for_account(driver, acc)
+            
+            if result == "ALREADY_APPLIED":
+                print(f"⚠️ IPO already applied for {acc['name']} - logging out and moving to next account")
+                if i < len(accounts):  # Don't logout after the last account
+                    logout(driver)
+                    print(f"✅ Successfully logged out {acc['name']}")
+                    time.sleep(3)  # Wait before next login
+                continue
+            
+            if i < len(accounts):  # Don't logout after the last account
+                print(f"🔄 Logging out {acc['name']} before processing next account...")
+                logout(driver)
+                print(f"✅ Successfully logged out {acc['name']}")
+                time.sleep(3)  # Wait before next login
+            else:
+                print(f"🎉 All accounts processed! Keeping {acc['name']} logged in.")
             
         except Exception as e:
             print(f"❌ Error processing {acc['name']}: {e}")
@@ -881,13 +1007,34 @@ def apply_ipo_for_all():
             try:
                 print(f"Current URL when error occurred: {driver.current_url}")
                 print(f"Page title: {driver.title}")
-            except:
-                pass
-            # Continue with next account
-            continue
+                
+                print("🔄 Attempting to recover for next account...")
+                try:
+                    logout(driver)
+                except:
+                    pass  # Ignore logout errors during recovery
+                
+                if i < len(accounts):
+                    print("⏭️ Continuing with next account...")
+                    time.sleep(3)
+                    continue
+                    
+            except Exception as recovery_error:
+                print(f"❌ Recovery failed: {recovery_error}")
+            
+            if i < len(accounts):
+                print("⏭️ Skipping to next account...")
+                continue
+            else:
+                print("❌ Final account failed, ending process")
+                break
 
-    driver.quit()
+    print("\n🎉 All accounts have been processed!")
+    print("🔄 Browser will remain open for manual review.")
+    # Don't quit driver to allow manual review
+    # driver.quit()
 
 
 if __name__ == "__main__":
     apply_ipo_for_all()
+    
